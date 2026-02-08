@@ -16,6 +16,22 @@ Built for the **Bridging Medical Deserts** track (Virtue Foundation / Databricks
 
 ---
 
+## Prerequisites (local models)
+
+The app uses **Ollama** by default for queries and LLM extraction. Install and pull the required model before running:
+
+1. **Install [Ollama](https://ollama.ai)** for your OS.
+2. Start Ollama (it often runs in the background after install), or run: `ollama serve`.
+3. **Pull the default model:**  
+   `ollama pull llama3.2`  
+   (Set `OLLAMA_MODEL` in `.env` to match; see [backend/.env.example](backend/.env.example).)
+4. Optional: if you use a different model for entity extraction (`OLLAMA_MODEL_EXTRACTOR=qwen2.5:7b`), also run:  
+   `ollama pull qwen2.5:7b`
+
+Without Ollama you can use an API provider instead: set `LLM_PROVIDER=gemini` (or `openai` / `anthropic`) and the corresponding API key in your `.env` (see [DOCKER.md](DOCKER.md)).
+
+---
+
 ## Quick start
 
 **With Docker (recommended)**
