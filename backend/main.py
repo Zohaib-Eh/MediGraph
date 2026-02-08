@@ -3,13 +3,28 @@ FastAPI Backend for Medical Knowledge Graph
 Main application file
 """
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+import asyncio
+import logging
+import os
+from contextlib import asynccontextmanager
+from typing import List, Optional
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
-from contextlib import asynccontextmanager
-import os
-from dotenv import load_dotenv
+
+
+def _detail_for_error(e: Exception) -> str:
+    """Turn connection-refused and similar into a clear message."""
+    msg = str(e)
+    if "111" in msg or "Connection refused" in msg or "ConnectionRefusedError" in msg:
+        return (
+            "Connection refused. "
+            "Ensure Neo4j is running (default port 7687) and, for AI queries, Ollama is running (run: ollama serve). "
+            "If using Docker, set NEO4J_URI=bolt://neo4j:7687 and OLLAMA_BASE_URL=http://host.docker.internal:11434 if Ollama is on the host."
+        )
+    return msg
 
 from services.extractor import DocumentExtractor
 from services.graph import GraphService
@@ -17,6 +32,17 @@ from services.agent import QueryAgent
 from services.vf_csv_parser import VFCSVParser
 
 load_dotenv()
+
+logging.basicConfig(
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+ENV = os.environ.get("ENV", "development")
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*")
+UPLOAD_MAX_SIZE_MB = int(os.environ.get("UPLOAD_MAX_SIZE_MB", "10"))
+UPLOAD_MAX_BYTES = UPLOAD_MAX_SIZE_MB * 1024 * 1024
 
 # Initialize services (will be set in lifespan)
 extractor = None
@@ -32,23 +58,23 @@ async def lifespan(app: FastAPI):
     """Manage application lifespan - startup and shutdown"""
     # Startup
     global extractor, csv_parser, graph_service, query_agent
-    print("🚀 Starting up services...")
+    logger.info("Starting up services...")
     extractor = DocumentExtractor(domain_context="healthcare")
     csv_parser = VFCSVParser()
     graph_service = GraphService()
     query_agent = QueryAgent(graph_service)
-    print("✅ Services initialized")
+    logger.info("Services initialized")
     
     yield
     
     # Shutdown - handle gracefully even during cancellation
     try:
-        print("🛑 Shutting down services...")
+        logger.info("Shutting down services...")
         if graph_service:
             graph_service.close()
-        print("✅ Services closed")
+        logger.info("Services closed")
     except Exception as e:
-        print(f"⚠️  Error during shutdown: {e}")
+        logger.warning("Error during shutdown: %s", e)
 
 app = FastAPI(
     title="Medical Knowledge Graph API",
@@ -60,7 +86,7 @@ app = FastAPI(
 # CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your frontend URL
+    allow_origins=CORS_ORIGINS.split(",") if "," in CORS_ORIGINS else [CORS_ORIGINS.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -108,8 +134,7 @@ async def root():
 async def health_check():
     """Check if all services are operational"""
     try:
-        # Test Neo4j connection
-        neo4j_status = graph_service.test_connection()
+        neo4j_status = await asyncio.to_thread(graph_service.test_connection)
         
         return {
             "status": "healthy",
@@ -131,25 +156,30 @@ async def upload_document(file: UploadFile = File(...)):
     Returns extracted entities and relationships
     """
     try:
-        # Save file
+        content = await file.read()
+        if len(content) > UPLOAD_MAX_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Max size: {UPLOAD_MAX_SIZE_MB} MB",
+            )
         os.makedirs("data/uploads", exist_ok=True)
         file_path = f"data/uploads/{file.filename}"
-        
         with open(file_path, "wb") as f:
-            content = await file.read()
             f.write(content)
         
         # Check file type
         if file.filename.endswith('.csv'):
             # Clear cache for this file to force re-parse
             if file.filename in parsed_data_cache:
-                print(f"🔄 Clearing cache for {file.filename}")
+                logger.info("Clearing cache for %s", file.filename)
                 del parsed_data_cache[file.filename]
             
             # Use CSV parser (extracts but doesn't build graph yet)
             # LLM disabled by default for faster upload
             try:
-                entities, relationships = csv_parser.parse_csv(file_path, enable_llm=False)
+                entities, relationships = await asyncio.to_thread(
+                    csv_parser.parse_csv, file_path, False
+                )
                 
                 # Cache the parsed data to avoid re-parsing
                 parsed_data_cache[file.filename] = {
@@ -159,7 +189,7 @@ async def upload_document(file: UploadFile = File(...)):
                 }
                 
             except Exception as parse_error:
-                print(f"CSV Parsing Error: {parse_error}")
+                logger.exception("CSV parsing error")
                 import traceback
                 traceback.print_exc()
                 raise HTTPException(status_code=500, detail=f"CSV parsing failed: {str(parse_error)}")
@@ -181,7 +211,8 @@ async def upload_document(file: UploadFile = File(...)):
                 text = f.read()
             
             # Extract entities from text description
-            entities = extractor.extract_entities_from_description(
+            entities = await asyncio.to_thread(
+                extractor.extract_entities_from_description,
                 text, 
                 entity_types=["equipment", "procedures", "specialties", "services"],
                 source_doc=file.filename
@@ -207,7 +238,7 @@ async def upload_document(file: UploadFile = File(...)):
             raise HTTPException(400, "Unsupported file type. Use .csv or .txt")
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 @app.post("/build-graph")
 async def build_graph(clear_existing: bool = False, enable_llm: bool = False, force_reparse: bool = False):
@@ -218,11 +249,11 @@ async def build_graph(clear_existing: bool = False, enable_llm: bool = False, fo
     """
     try:
         if clear_existing:
-            graph_service.clear_graph()
+            await asyncio.to_thread(graph_service.clear_graph)
         
         # Clear cache if force_reparse is true
         if force_reparse:
-            print("🔄 Force re-parse: clearing all cached data")
+            logger.info("Force re-parse: clearing all cached data")
             parsed_data_cache.clear()
         
         # Dynamic entity collection - starts empty, auto-populated
@@ -238,14 +269,15 @@ async def build_graph(clear_existing: bool = False, enable_llm: bool = False, fo
                 if filename.endswith('.csv'):
                     # Check if we have cached data for this file
                     if filename in parsed_data_cache and not enable_llm and not force_reparse:
-                        print(f"  ✓ Using cached data for {filename} (skipping re-parse)")
+                        logger.info("Using cached data for %s (skipping re-parse)", filename)
                         cached = parsed_data_cache[filename]
                         entities = cached["entities"]
                         rels = cached["relationships"]
                     else:
-                        print(f"  ⚙️  Parsing {filename} (LLM: {enable_llm})...")
-                        # Use CSV parser with enable_llm parameter
-                        entities, rels = csv_parser.parse_csv(file_path, enable_llm=enable_llm)
+                        logger.info("Parsing %s (LLM: %s)", filename, enable_llm)
+                        entities, rels = await asyncio.to_thread(
+                            csv_parser.parse_csv, file_path, enable_llm
+                        )
                         # Update cache
                         parsed_data_cache[filename] = {
                             "entities": entities,
@@ -261,13 +293,13 @@ async def build_graph(clear_existing: bool = False, enable_llm: bool = False, fo
                     relationships_all.extend(rels)
                 
                 elif filename.endswith('.txt'):
-                    # Text files only provide basic entity extraction
                     with open(file_path, 'r') as f:
                         text = f.read()
-                    entities = extractor.extract_entities_from_description(
+                    entities = await asyncio.to_thread(
+                        extractor.extract_entities_from_description,
                         text,
                         entity_types=["equipment", "procedures", "specialties", "services"],
-                        source_doc=filename
+                        source_doc=filename,
                     )
                     
                     # Add to entities_all
@@ -275,11 +307,10 @@ async def build_graph(clear_existing: bool = False, enable_llm: bool = False, fo
                         if entity_type in entities_all:
                             entities_all[entity_type].extend(entity_list)
         
-        # Build graph
-        graph_service.build_graph(entities_all, relationships_all)
-        
-        # Get stats
-        stats = graph_service.get_stats()
+        await asyncio.to_thread(
+            graph_service.build_graph, entities_all, relationships_all
+        )
+        stats = await asyncio.to_thread(graph_service.get_stats)
         
         return {
             "status": "success",
@@ -288,7 +319,7 @@ async def build_graph(clear_existing: bool = False, enable_llm: bool = False, fo
         }
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 # ============================================
 # QUERY & ANALYSIS
@@ -301,7 +332,9 @@ async def query_system(request: QueryRequest):
     Returns answer with reasoning trace and citations
     """
     try:
-        result = query_agent.run_query(request.query, request.show_trace)
+        result = await asyncio.to_thread(
+            query_agent.run_query, request.query, request.show_trace
+        )
         
         return QueryResponse(
             answer=result['answer'],
@@ -310,34 +343,34 @@ async def query_system(request: QueryRequest):
         )
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 @app.get("/analysis/medical-deserts", response_model=AnalysisResponse)
 async def analyze_medical_deserts():
     """Find regions with insufficient medical coverage"""
     try:
-        results = graph_service.find_medical_deserts()
+        results = await asyncio.to_thread(graph_service.find_medical_deserts)
         return AnalysisResponse(type="medical_deserts", results=results)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 @app.get("/analysis/equipment-gaps", response_model=AnalysisResponse)
 async def analyze_equipment_gaps():
     """Find facilities lacking critical equipment"""
     try:
-        results = graph_service.find_equipment_gaps()
+        results = await asyncio.to_thread(graph_service.find_equipment_gaps)
         return AnalysisResponse(type="equipment_gaps", results=results)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 @app.get("/analysis/inconsistencies", response_model=AnalysisResponse)
 async def analyze_inconsistencies():
     """Find capability inconsistencies"""
     try:
-        results = graph_service.find_inconsistencies()
+        results = await asyncio.to_thread(graph_service.find_inconsistencies)
         return AnalysisResponse(type="inconsistencies", results=results)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 # ============================================
 # GRAPH STATS
@@ -347,37 +380,43 @@ async def analyze_inconsistencies():
 async def get_graph_stats():
     """Get knowledge graph statistics"""
     try:
-        stats = graph_service.get_stats()
+        stats = await asyncio.to_thread(graph_service.get_stats)
         return GraphStats(**stats)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 @app.delete("/clear-graph")
 async def clear_graph():
     """Clear all data from the knowledge graph"""
     try:
-        graph_service.clear_graph()
+        await asyncio.to_thread(graph_service.clear_graph)
         return {
             "status": "success",
             "message": "Knowledge graph cleared successfully"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 @app.get("/debug/schema")
 async def debug_graph_schema():
-    """Debug: Get all node labels and relationship types in the graph"""
+    """Debug: Get all node labels and relationship types in the graph. Disabled in production."""
+    if ENV == "production":
+        raise HTTPException(status_code=404, detail="Not found")
     try:
-        labels = graph_service.query_custom("CALL db.labels()")
-        relationships = graph_service.query_custom("CALL db.relationshipTypes()")
-        
-        # Get sample data for each node type
+        labels = await asyncio.to_thread(
+            graph_service.query_custom, "CALL db.labels()"
+        )
+        relationships = await asyncio.to_thread(
+            graph_service.query_custom, "CALL db.relationshipTypes()"
+        )
         samples = {}
         for label_row in labels:
             label = label_row.get('label')
             if label:
                 sample_query = f"MATCH (n:{label}) RETURN n LIMIT 3"
-                sample_data = graph_service.query_custom(sample_query)
+                sample_data = await asyncio.to_thread(
+                    graph_service.query_custom, sample_query
+                )
                 samples[label] = sample_data
         
         return {
@@ -386,7 +425,7 @@ async def debug_graph_schema():
             "sample_data": samples
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 # ============================================
 # GRAPH VISUALIZATION
@@ -396,28 +435,34 @@ async def debug_graph_schema():
 async def get_graph_visualization(limit: int = 100):
     """Get graph data for visualization (nodes and edges)"""
     try:
-        graph_data = graph_service.get_graph_visualization(limit)
+        graph_data = await asyncio.to_thread(
+            graph_service.get_graph_visualization, limit
+        )
         return graph_data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 @app.get("/graph/query-visualization")
 async def get_query_graph_visualization(query: str, limit: int = 50):
     """Get subgraph relevant to a query for visualization"""
     try:
-        graph_data = graph_service.get_query_graph(query, limit)
+        graph_data = await asyncio.to_thread(
+            graph_service.get_query_graph, query, limit
+        )
         return graph_data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 @app.get("/graph/query-locations")
 async def get_query_locations(query: str = "", limit: int = 50):
     """Get locations relevant to a query for map display (from knowledge graph)"""
     try:
-        locations = graph_service.get_query_locations(query, limit)
+        locations = await asyncio.to_thread(
+            graph_service.get_query_locations, query, limit
+        )
         return {"locations": locations}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 # ============================================
 # SOURCE LOCATIONS (from uploaded CSVs)
@@ -505,10 +550,12 @@ async def get_source_locations(query: str = "", limit: int = 100):
     Provides raw address data for better geocoding via Mapbox API.
     """
     try:
-        locations = _get_locations_from_sources(query, limit)
+        locations = await asyncio.to_thread(
+            _get_locations_from_sources, query, limit
+        )
         return {"locations": locations}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_detail_for_error(e))
 
 # ============================================
 # RUN SERVER

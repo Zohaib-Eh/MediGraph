@@ -3,10 +3,14 @@ Neo4j Graph Service
 Handles all knowledge graph operations
 """
 
-import os
+import logging
 import math
+import os
+from typing import Any, Dict, List
+
 from neo4j import GraphDatabase
-from typing import List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 class GraphService:
     """Neo4j knowledge graph operations"""
@@ -66,7 +70,7 @@ class GraphService:
                 result.single()
             return True
         except Exception as e:
-            print(f"Neo4j connection test failed: {e}")
+            logger.warning("Neo4j connection test failed: %s", e)
             return False
     
     def clear_graph(self):
@@ -77,18 +81,13 @@ class GraphService:
     def build_graph(self, entities: Dict, relationships: List):
         """Build knowledge graph from entities and relationships (supports dynamic entity types)"""
         
-        # Log what we're building
-        print("\n🔨 Building Neo4j Graph...")
-        print(f"Entities to create:")
-        for entity_type, entity_list in entities.items():
-            print(f"  {entity_type}: {len(entity_list)}")
-        print(f"Relationships to create: {len(relationships)}")
+        logger.info("Building Neo4j graph: %d entity types, %d relationships", len(entities), len(relationships))
         
         with self.driver.session() as session:
             # Create nodes dynamically for all entity types
             self._create_all_nodes(session, entities)
             # Add facilities
-            print(f"\n  Creating {len(entities.get('facilities', []))} Facility nodes...")
+            logger.debug("Creating %d Facility nodes", len(entities.get('facilities', [])))
             for facility in entities.get('facilities', []):
                 try:
                     # Handle metadata as array property
@@ -111,10 +110,10 @@ class GraphService:
                         metadata=metadata
                     )
                 except Exception as e:
-                    print(f"    Error creating facility {facility.get('name')}: {e}")
+                    logger.warning("Error creating facility %s: %s", facility.get('name'), e)
             
             # Add equipment
-            print(f"  Creating {len(entities.get('equipment', []))} Equipment nodes...")
+            logger.debug("Creating %d Equipment nodes", len(entities.get('equipment', [])))
             for equipment in entities.get('equipment', []):
                 session.run("""
                     MERGE (e:Equipment {name: $name})
@@ -124,7 +123,7 @@ class GraphService:
                 """, **equipment)
             
             # Add procedures
-            print(f"  Creating {len(entities.get('procedures', []))} Procedure nodes...")
+            logger.debug("Creating %d Procedure nodes", len(entities.get('procedures', [])))
             for procedure in entities.get('procedures', []):
                 session.run("""
                     MERGE (p:Procedure {name: $name})
@@ -132,7 +131,7 @@ class GraphService:
                         p.source_document = $source_document
                 """, **procedure)
             
-            print(f"  Creating {len(entities.get('specialties', []))} Specialty nodes...")
+            logger.debug("Creating %d Specialty nodes", len(entities.get('specialties', [])))
             # Add specialties
             for specialty in entities.get('specialties', []):
                 session.run("""
@@ -140,7 +139,7 @@ class GraphService:
                     SET s.type = $type,
                         s.source_document = $source_document
                 """, **specialty)
-            print(f"  Creating {len(entities.get('locations', []))} Location nodes...")
+            logger.debug("Creating %d Location nodes", len(entities.get('locations', [])))
             
             # Add locations
             for location in entities.get('locations', []):
@@ -161,7 +160,7 @@ class GraphService:
                     type=location.get('type', 'location'),
                     source_document=location.get('source_document', '')
                 )
-            print(f"  Creating {len(entities.get('capabilities', []))} Capability nodes...")
+            logger.debug("Creating %d Capability nodes", len(entities.get('capabilities', [])))
             
             # Add capabilities
             for capability in entities.get('capabilities', []):
@@ -172,7 +171,7 @@ class GraphService:
                 """, **capability)
             
             # Add contacts
-            print(f"  Creating {len(entities.get('contacts', []))} Contact nodes...")
+            logger.debug("Creating %d Contact nodes", len(entities.get('contacts', [])))
             for contact in entities.get('contacts', []):
                 session.run("""
                     MERGE (c:Contact {name: $name})
@@ -181,7 +180,7 @@ class GraphService:
                 """, **contact)
             
             # Add operators
-            print(f"  Creating {len(entities.get('operators', []))} Operator nodes...")
+            logger.debug("Creating %d Operator nodes", len(entities.get('operators', [])))
             for operator in entities.get('operators', []):
                 session.run("""
                     MERGE (o:Operator {name: $name})
@@ -190,7 +189,7 @@ class GraphService:
                 """, **operator)
             
             # Add temporal info (founding dates, establishment info)
-            print(f"  Creating {len(entities.get('temporal_info', []))} TemporalInfo nodes...")
+            logger.debug("Creating %d TemporalInfo nodes", len(entities.get('temporal_info', [])))
             for temporal in entities.get('temporal_info', []):
                 session.run("""
                     MERGE (t:TemporalInfo {name: $name})
@@ -199,7 +198,7 @@ class GraphService:
                 """, **temporal)
             
             # Add staffing info (employee counts, team size)
-            print(f"  Creating {len(entities.get('staffing_info', []))} StaffingInfo nodes...")
+            logger.debug("Creating %d StaffingInfo nodes", len(entities.get('staffing_info', [])))
             for staffing in entities.get('staffing_info', []):
                 session.run("""
                     MERGE (s:StaffingInfo {name: $name})
@@ -207,12 +206,12 @@ class GraphService:
                         s.source_document = $source_document
                 """, **staffing)
             
-            print(f"  Creating {len(relationships)} relationships...")
+            logger.debug("Creating %d relationships", len(relationships))
             created_rels = 0
             failed_rels = 0
             
             # Add relationships
-            print(f"  Creating {len(relationships)} relationships...")
+            logger.debug("Creating %d relationships", len(relationships))
             created_rels = 0
             failed_rels = 0
             for rel in relationships:
@@ -243,19 +242,19 @@ class GraphService:
                     else:
                         failed_rels += 1
                         if failed_rels <= 10:  # Print first 10 failures
-                            print(f"    ⚠️  No nodes found: {rel['source']} ({source_label}) -[{rel_type}]-> {rel['target']} ({target_label})")
+                            logger.debug("No nodes found for relationship: %s -[%s]-> %s", rel['source'], rel_type, rel['target'])
                 except Exception as e:
                     failed_rels += 1
                     if failed_rels <= 10:  # Print first 10 failures
-                        print(f"    ❌ Failed relationship: {rel['source']} -[{rel_type}]-> {rel['target']}: {e}")
+                        logger.warning("Failed relationship %s -[%s]-> %s: %s", rel['source'], rel_type, rel['target'], e)
             
-            print(f"  ✓ Created {created_rels} relationships ({failed_rels} failed)\n")
+            logger.info("Created %d relationships (%d failed)", created_rels, failed_rels)
     
     def _create_all_nodes(self, session, entities: Dict):
         """Dynamically create nodes for all entity types"""
         
         # Special handling for facilities (has more properties)
-        print(f"\n  Creating {len(entities.get('facilities', []))} Facility nodes...")
+        logger.debug("Creating %d Facility nodes", len(entities.get('facilities', [])))
         for facility in entities.get('facilities', []):
             try:
                 metadata = facility.get('metadata', [])
@@ -277,10 +276,10 @@ class GraphService:
                     metadata=metadata
                 )
             except Exception as e:
-                print(f"    Error creating facility {facility.get('name')}: {e}")
+                logger.warning("Error creating facility %s: %s", facility.get('name'), e)
         
         # Special handling for locations (has city, country, etc.)
-        print(f"  Creating {len(entities.get('locations', []))} Location nodes...")
+        logger.debug("Creating %d Location nodes", len(entities.get('locations', [])))
         for location in entities.get('locations', []):
             session.run("""
                 MERGE (l:Location {name: $name})
@@ -310,7 +309,7 @@ class GraphService:
             
             # Convert collection name to Neo4j label (PascalCase singular)
             label = self._collection_to_label(entity_type)
-            print(f"  Creating {len(entity_list)} {label} nodes...")
+            logger.debug("Creating %d %s nodes", len(entity_list), label)
             
             for entity in entity_list:
                 # Build dynamic property setting
@@ -336,7 +335,7 @@ class GraphService:
                 try:
                     session.run(query, **props)
                 except Exception as e:
-                    print(f"    Error creating {label} node '{entity.get('name')}': {e}")
+                    logger.warning("Error creating %s node %s: %s", label, entity.get('name'), e)
     
     def _collection_to_label(self, collection_name: str) -> str:
         """Convert collection name to Neo4j label (snake_case plural -> PascalCase singular)"""
@@ -398,7 +397,7 @@ class GraphService:
         try:
             # Verify connection is alive
             if not self.test_connection():
-                print("⚠️  Neo4j connection not available, returning zero stats")
+                logger.warning("Neo4j connection not available, returning zero stats")
                 return stats
             
             with self.driver.session() as session:
@@ -417,7 +416,7 @@ class GraphService:
                         record = result.single()
                         stats[key] = record['count'] if record else 0
                     except Exception as e:
-                        print(f"Error getting count for {label}: {e}")
+                        logger.debug("Error getting count for %s: %s", label, e)
                         stats[key] = 0
                 
                 try:
@@ -425,10 +424,10 @@ class GraphService:
                     record = result.single()
                     stats['total_relationships'] = record['count'] if record else 0
                 except Exception as e:
-                    print(f"Error getting relationship count: {e}")
+                    logger.debug("Error getting relationship count: %s", e)
                     stats['total_relationships'] = 0
         except Exception as e:
-            print(f"❌ Error getting graph stats: {e}")
+            logger.warning("Error getting graph stats: %s", e)
             # Return zero stats instead of raising exception
         
         return stats
@@ -544,7 +543,7 @@ class GraphService:
                     'edges': edges
                 }
         except Exception as e:
-            print(f"Error getting graph visualization: {e}")
+            logger.warning("Error getting graph visualization: %s", e)
             return {'nodes': [], 'edges': []}
     
     def get_query_graph(self, query_text: str, limit: int = 50) -> Dict:
@@ -600,7 +599,7 @@ class GraphService:
                     return {'nodes': [], 'edges': []}
                     
         except Exception as e:
-            print(f"Error getting query graph: {e}")
+            logger.warning("Error getting query graph: %s", e)
             return {'nodes': [], 'edges': []}
     
     def get_query_locations(self, query_text: str, limit: int = 50) -> List[Dict]:
@@ -652,7 +651,7 @@ class GraphService:
                 result = session.run(cypher)
                 return [self._sanitize_value(dict(record)) for record in result]
         except Exception as e:
-            print(f"Error getting query locations: {e}")
+            logger.warning("Error getting query locations: %s", e)
             return []
     
     def close(self):

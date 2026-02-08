@@ -115,10 +115,13 @@ export function LocationMap({ query = "", title = "Locations Map", className = "
           return
         }
 
+        const coordsResults = await Promise.all(
+          merged.map((loc) => geocodeLocation(loc))
+        )
         const geocoded: GeocodedLocation[] = []
-        for (const loc of merged) {
-          const coords = await geocodeLocation(loc)
-          if (coords && !cancelled) geocoded.push({ ...loc, ...coords })
+        for (let i = 0; i < merged.length && !cancelled; i++) {
+          const coords = coordsResults[i]
+          if (coords) geocoded.push({ ...merged[i], ...coords })
         }
 
         if (cancelled) return

@@ -1,89 +1,39 @@
 """
 Intelligent Relationship Classification Service
-Uses LLM to classify text and infer appropriate entity types and relationships
+Uses LLM to classify text and infer appropriate entity types and relationships.
+Supports Gemini (free tier), OpenAI, Anthropic, and Ollama via llm_factory.
 """
 
 import re
 from typing import Dict, Tuple, Optional
-from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
 import json
 import os
 
-# Optional imports for paid providers (only needed if using them)
-try:
-    from langchain_openai import ChatOpenAI
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-
-try:
-    from langchain_anthropic import ChatAnthropic
-    ANTHROPIC_AVAILABLE = True
-except ImportError:
-    ANTHROPIC_AVAILABLE = False
+from .llm_factory import get_llm
 
 
 class RelationshipClassifier:
     """Classify text fragments and infer appropriate relationships"""
     
-    def __init__(self, provider="ollama", model=None):
+    def __init__(self, provider=None, model=None):
         """
-        Initialize with LLM provider
-        
+        Initialize with LLM provider (from env LLM_PROVIDER if not set).
+
         Args:
-            provider: "ollama" (default), "openai", or "anthropic"
-            model: Model name (optional, uses defaults)
+            provider: "gemini" (free), "openai", "anthropic", or "ollama"
+            model: Model name (optional, uses env defaults)
         """
-        self.provider = provider
-        
         try:
-            if provider == "openai":
-                if not OPENAI_AVAILABLE:
-                    print("⚠️  langchain-openai not installed. Install with: pip install langchain-openai")
-                    print("   Falling back to Ollama...")
-                    provider = "ollama"
-                else:
-                    # Use GPT-4o-mini for fast, accurate classification
-                    model = model or "gpt-4o-mini"
-                    api_key = os.getenv("OPENAI_API_KEY")
-                    if not api_key:
-                        print("⚠️  OPENAI_API_KEY not found in environment. Falling back to Ollama...")
-                        provider = "ollama"
-                    else:
-                        self.llm = ChatOpenAI(model=model, temperature=0.0, api_key=api_key)
-                        self.enabled = True
-                        print(f"✓ Relationship classifier using OpenAI {model}")
-                        return
-                
-            if provider == "anthropic":
-                if not ANTHROPIC_AVAILABLE:
-                    print("⚠️  langchain-anthropic not installed. Install with: pip install langchain-anthropic")
-                    print("   Falling back to Ollama...")
-                    provider = "ollama"
-                else:
-                    # Use Claude 3 Haiku for cost-effective classification
-                    model = model or "claude-3-haiku-20240307"
-                    api_key = os.getenv("ANTHROPIC_API_KEY")
-                    if not api_key:
-                        print("⚠️  ANTHROPIC_API_KEY not found in environment. Falling back to Ollama...")
-                        provider = "ollama"
-                    else:
-                        self.llm = ChatAnthropic(model=model, temperature=0.0, api_key=api_key)
-                        self.enabled = True
-                        print(f"✓ Relationship classifier using Anthropic {model}")
-                        return
-            
-            # Ollama (default for prototyping)
-            # Use qwen2.5:7b - excellent for structured output and classification
-            # Alternative: llama3.1:8b for better reasoning than llama3.2
-            model = model or os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-            self.llm = ChatOllama(model=model, temperature=0.0)
-            self.enabled = True
-            print(f"✓ Relationship classifier using Ollama {model}")
-            if provider == "ollama":
-                print(f"  💡 Tip: For production, install langchain-openai and set LLM_PROVIDER=openai")
-                
+            self.llm = get_llm(provider=provider or os.getenv("LLM_PROVIDER", "ollama"), model=model, temperature=0.0)
+            if self.llm:
+                self.enabled = True
+                prov = (provider or os.getenv("LLM_PROVIDER", "ollama")).lower()
+                print(f"✓ Relationship classifier using {prov}")
+            else:
+                self.llm = None
+                self.enabled = False
+                print("⚠️  No LLM available. Run Ollama (ollama serve) and set OLLAMA_MODEL in .env")
         except Exception as e:
             print(f"⚠️  Could not initialize LLM classifier: {e}")
             self.llm = None

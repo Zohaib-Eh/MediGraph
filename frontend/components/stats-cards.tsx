@@ -1,5 +1,6 @@
 "use client"
 
+import { motion } from "framer-motion"
 import { Building2, Wrench, Syringe, Stethoscope, MapPin, Zap, Link2, AlertCircle } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -40,26 +41,33 @@ export function StatsCards({ stats, isLoading, error }: StatsCardsProps) {
 
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-      {statConfig.map((stat) => (
-        <Card key={stat.key} className="border-border/50 hover:border-primary/30 transition-colors">
-          <CardContent className="flex flex-col gap-3 p-4">
-            <div className="flex items-center justify-between">
-              <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${stat.bg}`}>
-                <stat.icon className={`h-4 w-4 ${stat.color}`} />
+      {statConfig.map((stat, i) => (
+        <motion.div
+          key={stat.key}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: i * 0.04, duration: 0.25 }}
+        >
+          <Card className="border-border/50 transition-colors hover:border-primary/30 hover:shadow-md">
+            <CardContent className="flex flex-col gap-3 p-4">
+              <div className="flex items-center justify-between">
+                <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${stat.bg}`}>
+                  <stat.icon className={`h-4 w-4 ${stat.color}`} />
+                </div>
               </div>
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-8 w-16" />
-            ) : (
-              <div>
-                <p className="text-2xl font-bold text-foreground">
-                  {stats ? (stats[stat.key] ?? 0).toLocaleString() : "\u2014"}
-                </p>
-                <p className="text-xs text-muted-foreground">{stat.label}</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              {isLoading ? (
+                <Skeleton className="h-8 w-16" />
+              ) : (
+                <div>
+                  <p className="text-2xl font-bold tracking-tight text-foreground">
+                    {stats ? (stats[stat.key] ?? 0).toLocaleString() : "\u2014"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{stat.label}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
       ))}
     </div>
   )

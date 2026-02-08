@@ -4,46 +4,44 @@ Optimized for Virtue Foundation Ghana CSV format
 Enhanced with LLM extraction and validation
 """
 
-import pandas as pd
-import json
 import ast
+import json
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Tuple
 import os
-from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
 from .llm_extractor import LLMExtractor
+from .llm_factory import get_llm
 from .entity_validator import EntityValidator
 from .relationship_classifier import RelationshipClassifier
+
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
 
 class VFCSVParser:
     """Parse VF CSV and build knowledge graph with LLM enhancement"""
     
-    def __init__(self, model="llama3.2", enable_llm_extraction=False, llm_provider="ollama"):
-        # Use Ollama - free and runs locally
-        try:
-            self.llm = ChatOllama(
-                model=model,
-                temperature=0.0,
-            )
-        except Exception as e:
-            self.llm = None
-            print(f"Warning: Could not initialize Ollama LLM: {e}")
-        
-        # Initialize relationship classifier (defaults to better open-source model)
-        self.classifier = RelationshipClassifier(provider=llm_provider)
-        
-        # Initialize LLM extractor and validator
+    def __init__(self, model=None, enable_llm_extraction=False, llm_provider=None):
+        provider = llm_provider or os.getenv("LLM_PROVIDER", "ollama").strip().lower()
+        self.llm = get_llm(provider=provider, model=model)
+
+        self.classifier = RelationshipClassifier(provider=provider)
         self.enable_llm_extraction = enable_llm_extraction
         if enable_llm_extraction:
-            self.llm_extractor = LLMExtractor(model=model)
+            # Use OLLAMA_MODEL_EXTRACTOR for extraction only (e.g. qwen2.5:7b); else default OLLAMA_MODEL
+            extractor_model = os.getenv("OLLAMA_MODEL_EXTRACTOR") or model
+            self.llm_extractor = LLMExtractor(provider=provider, model=extractor_model)
             self.validator = EntityValidator()
-            print(f"✓ LLM extraction enabled: {self.llm_extractor.enabled}")
+            logger.info("LLM extraction enabled: %s", self.llm_extractor.enabled)
         else:
             self.llm_extractor = None
             self.validator = None
-            print(f"✓ LLM extraction disabled (use enable_llm=True to enable)")
+            logger.info("LLM extraction disabled (use enable_llm=True to enable)")
         
-        print(f"✓ Intelligent relationship classification: {self.classifier.enabled}")
+        logger.info("Intelligent relationship classification: %s", self.classifier.enabled)
     
     def _is_valid_capability(self, text: str) -> bool:
         """Check if text is a valid service capability (not location/number/junk)"""
@@ -103,35 +101,12 @@ class VFCSVParser:
         # Otherwise reject (too risky to include)
         return False
     
-    def parse_csv(self, csv_path: str, enable_llm: bool = None) -> Tuple[Dict, List]:
-        """
-        Parse VF CSV into KG entities and relationships
-        
-        Args:
-            csv_path: Path to CSV file
-            enable_llm: Override instance LLM setting for this call
-        
-        Returns:
-            (entities_dict, relationships_list)
-        """
-        # Allow per-call override
-        use_llm = enable_llm if enable_llm is not None else self.enable_llm_extraction
-        # Load CSV
-        df = pd.read_csv(csv_path)
-        
-        print(f"Loaded {len(df)} facilities from CSV")
-        
-        # Dynamic entity system: start with core types, auto-create others as needed
-        entities = {
-            "facilities": [],  # Core: always present
-        }
+    def _process_chunk(self, df_chunk: pd.DataFrame, use_llm: bool) -> Tuple[Dict, List]:
+        """Process a chunk of rows. Returns (entities_dict, relationships_list)."""
+        entities = {"facilities": []}
         relationships = []
-        
-        # Process each facility
-        for idx, row in df.iterrows():
-            if idx % 10 == 0:
-                print(f"Processing facility {idx}/{len(df)}...")
-            
+
+        for idx, row in df_chunk.iterrows():
             # STAGE 1: Parse structured CSV data
             facility_data = self._parse_facility(row)
             csv_entities = self._extract_csv_entities(row, idx)
@@ -268,7 +243,7 @@ class VFCSVParser:
                     classification = self.classifier.classify_and_extract(row['name'], cap_str)
                     
                     if classification.get("skip", False):
-                        print(f"  ⏭️  Skipping: '{cap_str}' (classified as irrelevant)")
+                        logger.debug("Skipping '%s' (classified as irrelevant)", cap_str)
                         continue
                     
                     entity_type = classification["entity_type"]
@@ -282,7 +257,7 @@ class VFCSVParser:
                         if "metadata" not in facility_data:
                             facility_data["metadata"] = []
                         facility_data["metadata"].append(cap_str)
-                        print(f"  📋 Metadata: '{cap_str}' → stored as facility property")
+                        logger.debug("Metadata '%s' stored as facility property", cap_str)
                         continue
                     
                     # Map entity type to collection (dynamic with normalization)
@@ -312,7 +287,7 @@ class VFCSVParser:
                         "data_source": "csv_classified"
                     })
                     
-                    print(f"  ✓ Classified '{cap_str}' → {entity_type} ({rel_type})")
+                    logger.debug("Classified '%s' -> %s (%s)", cap_str, entity_type, rel_type)
             
             # LLM ENHANCEMENT: Extract additional entities from description (if enabled and has description)
             if self.enable_llm_extraction and self.llm_extractor and self.llm_extractor.enabled:
@@ -411,7 +386,7 @@ class VFCSVParser:
                         
                         # Validate it's actually a service capability
                         if not self._is_valid_capability(cap_name):
-                            print(f"  ⚠️  Skipping LLM capability: '{cap_name}' (invalid)")
+                            logger.debug("Skipping LLM capability '%s' (invalid)", cap_name)
                             continue
                         
                         if "capabilities" not in entities:
@@ -432,11 +407,38 @@ class VFCSVParser:
                             "source_document": f"row_{idx}_llm",
                             "evidence": f"Extracted from description"
                         })
-        
+        return entities, relationships
+
+    def parse_csv(self, csv_path: str, enable_llm: bool = None) -> Tuple[Dict, List]:
+        """
+        Parse VF CSV into KG entities and relationships.
+        Uses chunked parallel processing for large files.
+        """
+        use_llm = enable_llm if enable_llm is not None else self.enable_llm_extraction
+        df = pd.read_csv(csv_path)
+        total_rows = len(df)
+        logger.info("Loaded %d facilities from CSV", total_rows)
+
+        num_workers = int(os.environ.get("CSV_CHUNK_WORKERS", "4"))
+        num_workers = min(max(1, num_workers), 16)
+        chunk_size = max(1, (total_rows + num_workers - 1) // num_workers)
+        chunks = [df.iloc[i:i + chunk_size] for i in range(0, total_rows, chunk_size)]
+
+        entities = {"facilities": []}
+        relationships = []
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            futures = {executor.submit(self._process_chunk, chunk, use_llm): chunk for chunk in chunks}
+            for future in as_completed(futures):
+                chunk_entities, chunk_rels = future.result()
+                for k, v in chunk_entities.items():
+                    entities.setdefault(k, []).extend(v)
+                relationships.extend(chunk_rels)
+
         # Deduplicate entities
         for entity_type in entities:
             entities[entity_type] = self._deduplicate(entities[entity_type])
-        
+
         # Build entity name lookup (case-insensitive and stripped)
         entity_name_map = {}  # normalized_name -> actual_name
         for f in entities.get('facilities', []):
@@ -488,17 +490,14 @@ class VFCSVParser:
                         missing.append(f"source: {rel['source']}")
                     if target_norm not in entity_name_map:
                         missing.append(f"target: {rel['target']}")
-                    print(f"  ⚠️  Orphaned relationship: {' + '.join(missing)}")
+                    logger.debug("Orphaned relationship: %s", ' + '.join(missing))
         
         relationships = normalized_relationships
         
         if orphaned_count > 0:
-            print(f"  ⚠️  Removed {orphaned_count} orphaned relationships")
+            logger.info("Removed %d orphaned relationships", orphaned_count)
         
-        print(f"\nExtracted:")
-        for entity_type, entity_list in entities.items():
-            print(f"  {entity_type}: {len(entity_list)}")
-        print(f"  relationships: {len(relationships)}")
+        logger.info("Extracted: %s entity types, %d relationships", len(entities), len(relationships))
         
         return entities, relationships
     
@@ -661,7 +660,7 @@ Focus on explicit mentions. If nothing found, return empty arrays."""
             
             # Handle empty or whitespace-only responses
             if not content or not content.strip():
-                print(f"LLM returned empty response for {facility_name}")
+                logger.debug("LLM returned empty response for %s", facility_name)
                 return {"equipment": [], "capabilities": []}, []
             
             # Extract JSON from markdown code blocks
@@ -723,7 +722,7 @@ Focus on explicit mentions. If nothing found, return empty arrays."""
             return entities, relationships
         
         except Exception as e:
-            print(f"LLM extraction failed for {facility_name}: {e}")
+            logger.warning("LLM extraction failed for %s: %s", facility_name, e)
             return {"equipment": [], "capabilities": []}, []
     
     def _deduplicate(self, entity_list: List[Dict]) -> List[Dict]:

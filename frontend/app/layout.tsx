@@ -1,19 +1,24 @@
 import React from "react"
 import type { Metadata, Viewport } from 'next'
-import { Inter, JetBrains_Mono } from 'next/font/google'
+import { Plus_Jakarta_Sans } from 'next/font/google'
 
+import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/sonner"
 import './globals.css'
 
-const _inter = Inter({ subsets: ['latin'] })
-const _jetbrainsMono = JetBrains_Mono({ subsets: ['latin'] })
+const plusJakarta = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
-  title: 'Healthcare Knowledge Graph',
-  description: 'Intelligent Document Parser & Medical Knowledge Graph - Upload healthcare data, build knowledge graphs, and query facility information with AI.',
+  title: 'MediGraph — Healthcare Knowledge Graph',
+  description: 'Intelligent Document Parser & Medical Knowledge Graph. Upload healthcare data, build knowledge graphs, and query facility information with AI.',
 }
 
 export const viewport: Viewport = {
-  themeColor: '#3B82F6',
+  themeColor: '#0f172a',
 }
 
 export default function RootLayout({
@@ -22,8 +27,18 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
-      <body className="font-sans antialiased">{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${plusJakarta.variable} font-sans antialiased`}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem
+          disableTransitionOnChange={false}
+        >
+          {children}
+          <Toaster richColors position="bottom-right" />
+        </ThemeProvider>
+      </body>
     </html>
   )
 }

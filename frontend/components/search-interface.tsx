@@ -1,8 +1,7 @@
 "use client"
 
-import React from "react"
-
-import { useState } from "react"
+import React, { useState } from "react"
+import { motion } from "framer-motion"
 import { Search, Loader2, Sparkles, type LucideIcon } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -48,12 +47,22 @@ export function SearchInterface({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col items-center gap-4 rounded-xl bg-card border p-8 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-          <Icon className="h-6 w-6 text-primary" />
-        </div>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35 }}
+        className="flex flex-col items-center gap-4 rounded-2xl border border-border/50 bg-card/80 p-8 text-center shadow-sm"
+      >
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ delay: 0.1 }}
+          className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15"
+        >
+          <Icon className="h-7 w-7 text-primary" />
+        </motion.div>
         <div>
-          <h2 className="text-xl font-semibold text-foreground">
+          <h2 className="text-xl font-semibold tracking-tight text-foreground">
             {title}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -83,32 +92,40 @@ export function SearchInterface({
 
         {stats && (
           <p className="text-xs text-muted-foreground">
-            Searching across {stats.total_facilities} facilities &middot;{" "}
-            {stats.total_equipment} equipment types &middot;{" "}
-            {stats.total_specialties} specialties
+            Searching across {stats.total_facilities} facilities · {stats.total_equipment} equipment · {stats.total_specialties} specialties
           </p>
         )}
-      </div>
+      </motion.div>
 
-      <div className="flex flex-col gap-2">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.2 }}
+        className="flex flex-col gap-2"
+      >
         <p className="text-sm font-medium text-muted-foreground">Try these queries</p>
         <div className="flex flex-wrap gap-2">
-          {exampleQueries.map((eq) => (
-            <button
+          {exampleQueries.map((eq, i) => (
+            <motion.button
               key={eq}
               type="button"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 + i * 0.03 }}
               onClick={() => {
                 setQuery(eq)
                 onSearch(eq)
               }}
               disabled={isLoading}
-              className="rounded-full border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="rounded-full border border-border/60 bg-card px-3.5 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted hover:border-primary/30 disabled:opacity-50"
             >
               {eq}
-            </button>
+            </motion.button>
           ))}
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }

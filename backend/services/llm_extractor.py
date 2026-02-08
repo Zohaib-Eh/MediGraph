@@ -1,28 +1,27 @@
 """
 LLM-based Entity Extraction Service
-Extracts entities from facility descriptions using LLM
+Extracts entities from facility descriptions using LLM (OpenAI, Anthropic, or Ollama via llm_factory).
 """
 
 import json
+import logging
 from typing import Dict, List, Optional
-from langchain_ollama import ChatOllama
+
 from langchain_core.messages import HumanMessage, SystemMessage
+
+from .llm_factory import get_llm
+
+logger = logging.getLogger(__name__)
 
 
 class LLMExtractor:
     """Extract healthcare entities from text using LLM"""
-    
-    def __init__(self, model="llama3.2"):
-        try:
-            self.llm = ChatOllama(
-                model=model,
-                temperature=0.0,
-            )
-            self.enabled = True
-        except Exception as e:
-            print(f"Warning: Could not initialize LLM for extraction: {e}")
-            self.llm = None
-            self.enabled = False
+
+    def __init__(self, provider=None, model=None):
+        self.llm = get_llm(provider=provider, model=model)
+        self.enabled = self.llm is not None
+        if not self.enabled:
+            logger.warning("LLM extractor disabled: no LLM available (set LLM_PROVIDER=openai and OPENAI_API_KEY for API).")
     
     def extract_entities(
         self, 
@@ -72,7 +71,7 @@ class LLMExtractor:
             return extracted
             
         except Exception as e:
-            print(f"Error in LLM extraction for {facility_name}: {e}")
+            logger.warning("LLM extraction failed for %s: %s", facility_name, e)
             return self._empty_result()
     
     def _build_extraction_prompt(
@@ -212,8 +211,7 @@ Return valid JSON in this exact format:
             return result
             
         except Exception as e:
-            print(f"Error parsing LLM response: {e}")
-            print(f"Response was: {response}")
+            logger.debug("Error parsing LLM response: %s. Response: %s", e, response[:200] if response else "")
             return self._empty_result()
     
     def _empty_result(self) -> Dict:

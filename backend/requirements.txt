@@ -3,12 +3,13 @@ fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.6
 
-# LLM & AI - Using Ollama (free, local) + OpenAI for classification
+# LLM & AI - Gemini (free tier), OpenAI, Anthropic, or Ollama (local)
 langchain>=0.2.0
+langchain-core>=0.2.20
+langchain-google-genai>=2.0.0
 langchain-ollama>=0.1.0
 langchain-openai>=0.1.0
 langchain-anthropic>=0.1.0
-langchain-core>=0.2.20
 
 # Database
 neo4j>=5.16.0

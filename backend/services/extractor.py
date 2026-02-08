@@ -7,25 +7,19 @@ General-purpose extractor for any domain
 import os
 import json
 from typing import Dict, List, Optional
-from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
+
+from .llm_factory import get_llm
+
 
 class DocumentExtractor:
     """Extract relationships and entities from document descriptions using LLM"""
-    
-    def __init__(self, model="llama3.2", domain_context: Optional[str] = None):
+
+    def __init__(self, model=None, domain_context: Optional[str] = None):
         """
-        Initialize the extractor
-        
-        Args:
-            model: Ollama model to use (default: llama3.2)
-            domain_context: Optional domain context (e.g., "healthcare", "education", "retail")
+        Initialize the extractor. Uses LLM_PROVIDER and API keys from env (openai, anthropic, ollama).
         """
-        # Use Ollama - free and runs locally
-        self.llm = ChatOllama(
-            model=model,
-            temperature=0.0,
-        )
+        self.llm = get_llm(model=model)
         self.domain_context = domain_context or "general"
     
     def extract_relationships_from_description(
@@ -82,7 +76,9 @@ class DocumentExtractor:
         """
         if not description or not description.strip():
             return {}
-        
+        if not self.llm:
+            return {}
+
         # Default entity types based on domain
         if entity_types is None:
             if self.domain_context == "healthcare":
@@ -161,7 +157,9 @@ IMPORTANT: Extract only what's explicitly mentioned. Return empty arrays if noth
         relationship_types: Optional[List[str]] = None
     ) -> List[Dict]:
         """Extract relationships from text description"""
-        
+        if not self.llm:
+            return []
+
         # Default relationship types based on domain
         if relationship_types is None:
             if self.domain_context == "healthcare":

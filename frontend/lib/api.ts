@@ -71,9 +71,11 @@ export interface QueryLocation {
   facilities?: string[]
 }
 
+const DEBUG = process.env.NODE_ENV === "development"
+
 async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${endpoint}`
-  console.log("[v0] apiFetch:", url)
+  if (DEBUG) console.debug("[API]", url)
   try {
     const res = await fetch(url, {
       ...options,
@@ -84,15 +86,14 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> 
 
     if (!res.ok) {
       const errorText = await res.text().catch(() => "Unknown error")
-      console.error("[v0] API response not ok:", res.status, errorText)
+      if (DEBUG) console.error("[API] Error", res.status, errorText)
       throw new Error(`API Error (${res.status}): ${errorText}`)
     }
 
     const json = await res.json()
-    console.log("[v0] API response for", endpoint, ":", JSON.stringify(json).slice(0, 500))
     return json
   } catch (err) {
-    console.error("[v0] apiFetch error for", endpoint, ":", err)
+    if (DEBUG) console.error("[API] Fetch error", endpoint, err)
     throw err
   }
 }

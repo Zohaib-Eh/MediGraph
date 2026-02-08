@@ -62,7 +62,7 @@ export function GraphControls({ onRefresh, hasUploadResult }: GraphControlsProps
   }
 
   return (
-    <Card className="border-border/50">
+    <Card className="border-border/50 shadow-sm">
       <CardHeader className="pb-4">
         <CardTitle className="text-base font-semibold">Graph Controls</CardTitle>
       </CardHeader>

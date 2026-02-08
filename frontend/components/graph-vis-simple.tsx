@@ -247,11 +247,11 @@ export function GraphVisualization({
   }
 
   return (
-    <Card className={`border-border/50 ${isFullscreen ? "fixed inset-4 z-50 bg-background" : ""} ${className}`}>
+    <Card className={`border-border/50 shadow-sm ${isFullscreen ? "fixed inset-4 z-50 bg-background" : ""} ${className}`}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <CardTitle className="text-base font-semibold">{title}</CardTitle>
+            <CardTitle className="text-base font-semibold tracking-tight">{title}</CardTitle>
             {!isLoading && !error && (
               <div className="flex gap-1.5">
                 <Badge variant="secondary" className="text-xs">

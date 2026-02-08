@@ -1,0 +1,61 @@
+services:
+  neo4j:
+    image: neo4j:5-community
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/password
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    # So the API container can reach Neo4j/Ollama on your host (Windows/Mac/Linux)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Use host Neo4j: set in .env to bolt://host.docker.internal:7687 and run: docker compose up api frontend
+      # Use Neo4j in Docker: leave default and run: docker compose up
+      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
+      ENV: development
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      LOG_LEVEL: INFO
+      UPLOAD_MAX_SIZE_MB: 10
+      CSV_CHUNK_WORKERS: 4
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      OLLAMA_MODEL_EXTRACTOR: ${OLLAMA_MODEL_EXTRACTOR:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    volumes:
+      - api_uploads:/app/data/uploads
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - api
+
+volumes:
+  neo4j_data:
+  api_uploads:

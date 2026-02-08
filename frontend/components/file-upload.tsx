@@ -1,8 +1,8 @@
 "use client"
 
 import React from "react"
-
 import { useCallback, useState, useRef } from "react"
+import { motion } from "framer-motion"
 import { Upload, FileText, CheckCircle2, AlertCircle, X } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -101,14 +101,14 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
   }
 
   return (
-    <Card className="border-border/50">
+    <Card className="overflow-hidden border-border/50 shadow-sm">
       <CardHeader className="pb-4">
-        <CardTitle className="text-base font-semibold">Upload Data</CardTitle>
+        <CardTitle className="text-base font-semibold tracking-tight">Upload Data</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {!result ? (
           <>
-            <div
+            <motion.div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
@@ -118,17 +118,22 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
               }}
               role="button"
               tabIndex={0}
+              whileHover={{ scale: 1.005 }}
               className={cn(
-                "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-8 transition-colors",
+                "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-8 transition-colors",
                 isDragging
-                  ? "border-primary bg-primary/5"
+                  ? "border-primary bg-primary/10"
                   : "border-border hover:border-primary/50 hover:bg-muted/50",
                 error && "border-destructive/50"
               )}
             >
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+              <motion.div
+                animate={isDragging ? { scale: [1, 1.08, 1] } : {}}
+                transition={{ repeat: isDragging ? Infinity : 0, duration: 1.2 }}
+                className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted"
+              >
                 <Upload className="h-6 w-6 text-muted-foreground" />
-              </div>
+              </motion.div>
               <div className="text-center">
                 <p className="text-sm font-medium text-foreground">
                   Drop CSV file here or click to browse
@@ -144,7 +149,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
                 onChange={handleFileSelect}
                 className="hidden"
               />
-            </div>
+            </motion.div>
 
             {file && (
               <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
@@ -187,8 +192,13 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
             </Button>
           </>
         ) : (
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-2 rounded-lg border border-[hsl(var(--success))]/30 bg-[hsl(var(--success))]/5 p-3">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex flex-col gap-4"
+          >
+            <div className="flex items-center gap-2 rounded-xl border border-[hsl(var(--success))]/30 bg-[hsl(var(--success))]/10 p-3">
               <CheckCircle2 className="h-5 w-5 text-[hsl(var(--success))]" />
               <div>
                 <p className="text-sm font-medium text-foreground">Upload Successful</p>
@@ -228,7 +238,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
             <Button variant="outline" onClick={handleReset}>
               Upload Another File
             </Button>
-          </div>
+          </motion.div>
         )}
       </CardContent>
     </Card>

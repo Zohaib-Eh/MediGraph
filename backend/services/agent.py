@@ -3,21 +3,28 @@ Query Agent Service
 Handles intelligent querying of the knowledge graph
 """
 
-import os
 import json
-from langchain_ollama import ChatOllama
+import logging
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.messages import HumanMessage, SystemMessage
+
+from .llm_factory import get_llm
+
+logger = logging.getLogger(__name__)
+
 
 class QueryAgent:
     """Intelligent query agent for medical knowledge graph"""
-    
-    def __init__(self, graph_service, model="llama3.2"):
+
+    def __init__(self, graph_service, model=None):
         self.graph = graph_service
-        # Use Ollama - free and runs locally
-        self.llm = ChatOllama(
-            model=model,
-            temperature=0.0,
-        )
+        self.llm = get_llm(model=model)
+        if self.llm is None:
+            raise RuntimeError(
+                "No LLM available. For API-based models set LLM_PROVIDER=openai and OPENAI_API_KEY=... "
+                "(or ANTHROPIC_API_KEY for anthropic). For local use, run Ollama and set LLM_PROVIDER=ollama."
+            )
     
     def run_query(self, query: str, show_trace: bool = True) -> dict:
         """
@@ -56,7 +63,7 @@ class QueryAgent:
                 'data': all_facilities,
                 'spec': {'reason': 'Gap analysis needs full facility list for comparison'}
             })
-            print(f"📊 Gap query: Added {len(all_facilities)} total facilities for comparison")
+            logger.info("Gap query: added %d total facilities for comparison", len(all_facilities))
         
         # Step 3: Check if we got data, generate suggestions if not
         has_data = any(
@@ -151,10 +158,10 @@ Return empty array if no clear matches."""
                     
                     if not any(q.get('relationship') == rel_type for q in enhanced_queries):
                         enhanced_queries.append(query_spec)
-                        print(f"✨ LLM enhanced plan: Added {rel_type}")
+                        logger.debug("LLM enhanced plan: added %s", rel_type)
         
         except Exception as e:
-            print(f"LLM enhancement failed: {e}, using original plan")
+            logger.warning("LLM enhancement failed: %s, using original plan", e)
         
         plan['queries'] = enhanced_queries
         return plan
@@ -177,7 +184,7 @@ Return empty array if no clear matches."""
         # Step 3: Build plan from template (deterministic)
         plan = self._build_plan_from_template(query_pattern, entities, samples)
         
-        print(f"✅ Pattern: {query_pattern}, Entities: {entities}")
+        logger.debug("Pattern: %s, Entities: %s", query_pattern, entities)
         return plan
     
     def _identify_query_pattern(self, query_lower: str) -> str:
@@ -298,7 +305,7 @@ Return ONLY the keyword as plain text, nothing else."""
                     }
             
         except Exception as e:
-            print(f"⚠️  LLM entity extraction failed: {e}")
+            logger.warning("LLM entity extraction failed: %s", e)
         
         # Fallback
         return {'relationship': None, 'target_type': 'Facility', 'keyword': None}
@@ -363,7 +370,7 @@ Examples:
             return json.loads(content)
             
         except Exception as e:
-            print(f"⚠️  Entity extraction failed: {e}")
+            logger.warning("Entity extraction failed: %s", e)
             # Fallback: use first available relationship
             if samples:
                 first_rel = list(samples.keys())[0]
@@ -447,7 +454,7 @@ Examples:
                 "relationship_types": relationship_types
             }
         except Exception as e:
-            print(f"Schema introspection failed: {e}")
+            logger.warning("Schema introspection failed: %s", e)
             # Return common types as fallback
             return {
                 "node_labels": ["Facility", "Equipment", "Procedure", "Specialty", "Capability", "Location"],
@@ -474,83 +481,69 @@ Examples:
                         'examples': result[0].get('examples')
                     }
             except Exception as e:
-                print(f"Error sampling {rel_type}: {e}")
+                logger.debug("Error sampling %s: %s", rel_type, e)
                 continue
         
         return samples
     
+    def _run_single_query(self, query_spec: dict) -> dict:
+        """Execute a single query spec. Used for parallel execution."""
+        query_type = query_spec.get("type", "")
+        try:
+            if query_type == "count_nodes":
+                node_type = query_spec.get("node_type", "Facility")
+                result = self._count_nodes(node_type)
+                return {"type": query_type, "data": result, "spec": query_spec}
+
+            elif query_type == "find_related":
+                relationship = query_spec.get("relationship")
+                if relationship:
+                    count_query = f"MATCH ()-[r:{relationship}]->() RETURN count(r) as count"
+                    count_result = self.graph.query_custom(count_query)
+                    rel_count = count_result[0]['count'] if count_result else 0
+                    if rel_count == 0:
+                        return {
+                            "type": query_type, "data": [], "spec": query_spec,
+                            "warning": f"Relationship {relationship} exists but contains no data."
+                        }
+                result = self._find_related(query_spec)
+                return {"type": query_type, "data": result, "spec": query_spec}
+
+            elif query_type == "location_analysis":
+                result = self._analyze_locations()
+                return {"type": query_type, "data": result, "spec": query_spec}
+
+            elif query_type == "custom_cypher":
+                cypher = query_spec.get("cypher", "")
+                result = self.graph.query_custom(cypher)
+                return {"type": query_type, "data": result, "spec": query_spec}
+
+            else:
+                return {"type": query_type, "error": f"Unknown query type: {query_type}", "spec": query_spec}
+
+        except Exception as e:
+            return {"type": query_type, "error": str(e), "spec": query_spec}
+
     def _execute_plan(self, plan: dict) -> list:
-        """Execute planned queries dynamically with data validation"""
-        results = []
-        
-        for query_spec in plan.get("queries", []):
-            query_type = query_spec.get("type", "")
-            
-            try:
-                # Dynamic query execution based on type
-                if query_type == "count_nodes":
-                    node_type = query_spec.get("node_type", "Facility")
-                    result = self._count_nodes(node_type)
-                    results.append({
-                        "type": query_type,
-                        "data": result,
-                        "spec": query_spec
-                    })
-                    
-                elif query_type == "find_related":
-                    # First check if this relationship actually has data
-                    relationship = query_spec.get("relationship")
-                    if relationship:
-                        count_query = f"MATCH ()-[r:{relationship}]->() RETURN count(r) as count"
-                        count_result = self.graph.query_custom(count_query)
-                        rel_count = count_result[0]['count'] if count_result else 0
-                        
-                        if rel_count == 0:
-                            # Relationship exists in schema but has no data
-                            results.append({
-                                "type": query_type,
-                                "data": [],
-                                "spec": query_spec,
-                                "warning": f"Relationship {relationship} exists but contains no data. This field may be empty in the uploaded CSV."
-                            })
-                            print(f"⚠️  {relationship} has no data (likely empty in CSV)")
-                            continue
-                    
-                    result = self._find_related(query_spec)
-                    results.append({
-                        "type": query_type,
-                        "data": result,
-                        "spec": query_spec
-                    })
-                    
-                elif query_type == "location_analysis":
-                    result = self._analyze_locations()
-                    results.append({
-                        "type": query_type,
-                        "data": result,
-                        "spec": query_spec
-                    })
-                    
-                elif query_type == "custom_cypher":
-                    cypher = query_spec.get("cypher", "")
-                    result = self.graph.query_custom(cypher)
-                    results.append({
-                        "type": query_type,
-                        "data": result,
-                        "spec": query_spec
-                    })
-                else:
-                    print(f"Unknown query type: {query_type}")
-                    
-            except Exception as e:
-                print(f"Error executing {query_type}: {e}")
-                results.append({
-                    "type": query_type,
-                    "error": str(e),
-                    "spec": query_spec
-                })
-        
-        return results
+        """Execute planned queries in parallel for better performance"""
+        queries = plan.get("queries", [])
+        if not queries:
+            return []
+
+        max_workers = min(len(queries), 8)
+        results = [None] * len(queries)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_idx = {executor.submit(self._run_single_query, q): i for i, q in enumerate(queries)}
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    results[idx] = future.result()
+                except Exception as e:
+                    query_type = queries[idx].get("type", "unknown")
+                    results[idx] = {"type": query_type, "error": str(e), "spec": queries[idx]}
+
+        return [r for r in results if r is not None]
     
     def _count_nodes(self, node_type: str) -> int:
         """Count nodes of any type"""
@@ -582,7 +575,7 @@ Examples:
                 
                 query = query.replace("RETURN", f"WHERE {' OR '.join(filter_conditions)}\nRETURN")
             
-            print(f"🔍 Executing Cypher: {query[:200]}...")
+            logger.debug("Executing Cypher: %s...", query[:200])
         else:
             # Just list nodes of this type
             query = f"""
@@ -591,7 +584,7 @@ Examples:
             """
         
         result = self.graph.query_custom(query)
-        print(f"📊 Query returned {len(result) if result else 0} results")
+        logger.debug("Query returned %d results", len(result) if result else 0)
         return result
     
     def _list_facilities(self, criteria: str = None) -> list:
@@ -1009,7 +1002,7 @@ The following facilities from the knowledge graph were analyzed:
                                 'examples': sample[0].get('examples', [])
                             }
                 except Exception as e:
-                    print(f"Error checking {rel_type}: {e}")
+                    logger.debug("Error checking %s: %s", rel_type, e)
                     continue
             
             return {
@@ -1019,5 +1012,5 @@ The following facilities from the knowledge graph were analyzed:
             }
             
         except Exception as e:
-            print(f"Error getting suggestions: {e}")
+            logger.warning("Error getting suggestions: %s", e)
             return {}
