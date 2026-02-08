@@ -1,0 +1,3 @@
+name,specialties,procedure,equipment,description,address_city,address_country
+Test Hospital,"[""cardiology"", ""surgery""]","[""Heart Surgery"", ""MRI Scan""]","[""MRI"", ""X-Ray""]",Modern hospital with advanced equipment,Accra,Ghana
+City Clinic,"[""pediatrics""]","[""Vaccination""]","[""Ultrasound""]",Community clinic serving families,Kumasi,Ghana

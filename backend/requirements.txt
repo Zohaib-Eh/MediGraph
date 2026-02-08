@@ -1,0 +1,24 @@
+# FastAPI Backend
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# LLM & AI - Using Ollama (free, local) + OpenAI for classification
+langchain>=0.2.0
+langchain-ollama>=0.1.0
+langchain-openai>=0.1.0
+langchain-anthropic>=0.1.0
+langchain-core>=0.2.20
+
+# Database
+neo4j>=5.16.0
+
+# Data Processing
+python-dotenv>=1.0.0
+pydantic>=2.7.4  # Compatible with langchain and fastapi
+pypdf>=3.17.4
+python-docx>=1.1.0
+pandas>=2.0.0
+
+# Utilities
+requests>=2.31.0
