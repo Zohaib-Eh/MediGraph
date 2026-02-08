@@ -1,6 +1,7 @@
 "use client"
 import ReactMarkdown from 'react-markdown'
 import { GraphVisualization } from './graph-vis-simple'
+import { LocationMap } from './location-map'
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -207,6 +208,14 @@ export function PlanningAssistant() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Map: below the knowledge graph */}
+      {graphQuery && (
+        <LocationMap
+          query={graphQuery}
+          title="Planning Locations Map"
+        />
       )}
 
       {/* Help Text */}

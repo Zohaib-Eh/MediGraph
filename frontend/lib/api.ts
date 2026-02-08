@@ -62,6 +62,15 @@ export interface GraphVisualizationData {
   edges: GraphEdge[]
 }
 
+export interface QueryLocation {
+  name: string
+  city?: string
+  state_or_region?: string
+  country?: string
+  country_code?: string
+  facilities?: string[]
+}
+
 async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${endpoint}`
   console.log("[v0] apiFetch:", url)
@@ -129,5 +138,15 @@ export const api = {
   queryGraphVisualization: (query: string, limit = 50) =>
     apiFetch<GraphVisualizationData>(
       `/graph/query-visualization?query=${encodeURIComponent(query)}&limit=${limit}`
+    ),
+
+  queryLocations: (query: string = "", limit = 50) =>
+    apiFetch<{ locations: QueryLocation[] }>(
+      `/graph/query-locations?query=${encodeURIComponent(query)}&limit=${limit}`
+    ),
+
+  sourceLocations: (query: string = "", limit = 100) =>
+    apiFetch<{ locations: QueryLocation[] }>(
+      `/sources/locations?query=${encodeURIComponent(query)}&limit=${limit}`
     ),
 }

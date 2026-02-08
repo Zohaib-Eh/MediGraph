@@ -410,6 +410,106 @@ async def get_query_graph_visualization(query: str, limit: int = 50):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/graph/query-locations")
+async def get_query_locations(query: str = "", limit: int = 50):
+    """Get locations relevant to a query for map display (from knowledge graph)"""
+    try:
+        locations = graph_service.get_query_locations(query, limit)
+        return {"locations": locations}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================
+# SOURCE LOCATIONS (from uploaded CSVs)
+# ============================================
+
+def _get_locations_from_sources(query: str = "", limit: int = 100) -> list:
+    """
+    Read uploaded CSV files and extract facility + address data.
+    Uses raw source data (not the graph) so we get full addresses for geocoding.
+    """
+    import pandas as pd
+    results = []
+    seen = set()
+    # Extract keywords for filtering (skip common words)
+    stop_words = {"what", "where", "which", "have", "with", "that", "this", "from", "the", "and", "are", "how"}
+    keywords = [w.lower() for w in (query or "").split() if len(w) > 2 and w.lower() not in stop_words][:5]
+    
+    upload_dir = "data/uploads"
+    if not os.path.exists(upload_dir):
+        return []
+    
+    for filename in os.listdir(upload_dir):
+        if not filename.endswith(".csv"):
+            continue
+        file_path = os.path.join(upload_dir, filename)
+        try:
+            df = pd.read_csv(file_path, low_memory=False)
+        except Exception:
+            continue
+        
+        # Expected columns (VF CSV format)
+        name_col = "name" if "name" in df.columns else df.columns[0]
+        city_col = "address_city" if "address_city" in df.columns else None
+        state_col = "address_stateOrRegion" if "address_stateOrRegion" in df.columns else None
+        country_col = "address_country" if "address_country" in df.columns else None
+        country_code_col = "address_countryCode" if "address_countryCode" in df.columns else None
+        addr1_col = "address_line1" if "address_line1" in df.columns else None
+        
+        for _, row in df.iterrows():
+            facility_name = str(row.get(name_col, "")).strip()
+            if not facility_name or facility_name == "nan":
+                continue
+            
+            city = str(row.get(city_col, "")).strip() if city_col and pd.notna(row.get(city_col)) else ""
+            state = str(row.get(state_col, "")).strip() if state_col and pd.notna(row.get(state_col)) else ""
+            
+            # Filter by query keywords if provided (match facility, city, or state)
+            if keywords:
+                search_text = f"{facility_name} {city} {state}".lower()
+                if not any(kw in search_text for kw in keywords):
+                    continue
+            country = str(row.get(country_col, "Ghana")).strip() if country_col and pd.notna(row.get(country_col)) else "Ghana"
+            country_code = str(row.get(country_code_col, "GH")).strip() if country_code_col and pd.notna(row.get(country_code_col)) else "GH"
+            addr1 = str(row.get(addr1_col, "")).strip() if addr1_col and pd.notna(row.get(addr1_col)) else ""
+            
+            # Build location name (prefer full address for geocoding)
+            parts = [p for p in [addr1, city, state, country] if p and p != "nan"]
+            location_name = ", ".join(parts) if parts else (city or state or country or "Unknown")
+            
+            key = (facility_name, location_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            
+            results.append({
+                "name": location_name,
+                "city": city or "Unknown",
+                "state_or_region": state or "Unknown",
+                "country": country,
+                "country_code": country_code,
+                "facilities": [facility_name],
+                "source": "csv",
+            })
+            
+            if len(results) >= limit:
+                return results
+    
+    return results
+
+
+@app.get("/sources/locations")
+async def get_source_locations(query: str = "", limit: int = 100):
+    """
+    Get locations from uploaded source CSVs (not the graph).
+    Provides raw address data for better geocoding via Mapbox API.
+    """
+    try:
+        locations = _get_locations_from_sources(query, limit)
+        return {"locations": locations}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============================================
 # RUN SERVER
 # ============================================

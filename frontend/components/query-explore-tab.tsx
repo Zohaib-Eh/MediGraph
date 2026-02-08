@@ -5,6 +5,7 @@ import { SearchInterface } from "./search-interface"
 import { QueryResultCard } from "./query-result"
 import { AnalysisInsights } from "./analysis-insights"
 import { GraphVisualization } from "./graph-vis-simple"
+import { LocationMap } from "./location-map"
 import { Loader2 } from "lucide-react"
 import { api } from "@/lib/api"
 import type { QueryResult } from "@/lib/api"
@@ -98,6 +99,14 @@ export function QueryExploreTab() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Map: below the knowledge graph */}
+      {currentQuery && (
+        <LocationMap
+          query={currentQuery}
+          title="Query Locations Map"
+        />
       )}
 
       <AnalysisInsights />

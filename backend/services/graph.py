@@ -603,6 +603,58 @@ class GraphService:
             print(f"Error getting query graph: {e}")
             return {'nodes': [], 'edges': []}
     
+    def get_query_locations(self, query_text: str, limit: int = 50) -> List[Dict]:
+        """
+        Get Location nodes and Facility-Location pairs relevant to a query.
+        Returns locations suitable for map display with facility context.
+        """
+        try:
+            keywords = [word.lower() for word in query_text.split() 
+                       if len(word) > 3 and word.lower() not in 
+                       ['what', 'where', 'which', 'have', 'with', 'that', 'this', 'from']]
+            
+            with self.driver.session() as session:
+                if keywords:
+                    keyword_pattern = '|'.join(keywords[:5])
+                    # Get locations: matched Locations OR Locations of matched Facilities
+                    cypher = f"""
+                        MATCH (n)
+                        WHERE toLower(n.name) =~ '(?i).*({keyword_pattern}).*'
+                        WITH COLLECT(id(n)) as matchedIds
+                        MATCH (l:Location)
+                        WHERE id(l) IN matchedIds
+                           OR (l)<-[:LOCATED_IN]-(f:Facility) AND id(f) IN matchedIds
+                        WITH DISTINCT l
+                        OPTIONAL MATCH (fac:Facility)-[:LOCATED_IN]->(l)
+                        WITH l, COLLECT(DISTINCT fac.name) as facilities
+                        RETURN l.name as name,
+                               l.city as city,
+                               l.state_or_region as state_or_region,
+                               l.country as country,
+                               l.country_code as country_code,
+                               facilities
+                        LIMIT {limit}
+                    """
+                else:
+                    # No keywords: return all Facility-Location pairs
+                    cypher = """
+                        MATCH (f:Facility)-[:LOCATED_IN]->(l:Location)
+                        WITH l, COLLECT(DISTINCT f.name) as facilities
+                        RETURN l.name as name,
+                               l.city as city,
+                               l.state_or_region as state_or_region,
+                               l.country as country,
+                               l.country_code as country_code,
+                               facilities
+                        LIMIT 50
+                    """
+                
+                result = session.run(cypher)
+                return [self._sanitize_value(dict(record)) for record in result]
+        except Exception as e:
+            print(f"Error getting query locations: {e}")
+            return []
+    
     def close(self):
         """Close driver"""
         self.driver.close()
