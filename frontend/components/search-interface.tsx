@@ -3,12 +3,12 @@
 import React from "react"
 
 import { useState } from "react"
-import { Search, Loader2, Sparkles } from "lucide-react"
+import { Search, Loader2, Sparkles, type LucideIcon } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { useStats } from "@/lib/hooks"
 
-const EXAMPLE_QUERIES = [
+const DEFAULT_EXAMPLE_QUERIES = [
   "How many facilities are in the database?",
   "Which facilities offer cardiology services?",
   "List facilities in Accra with their specialties",
@@ -20,9 +20,22 @@ const EXAMPLE_QUERIES = [
 interface SearchInterfaceProps {
   onSearch: (query: string) => void
   isLoading: boolean
+  title?: string
+  subtitle?: string
+  placeholder?: string
+  exampleQueries?: string[]
+  icon?: LucideIcon
 }
 
-export function SearchInterface({ onSearch, isLoading }: SearchInterfaceProps) {
+export function SearchInterface({
+  onSearch,
+  isLoading,
+  title = "Explore Healthcare Facilities",
+  subtitle = "Ask anything about healthcare facilities, equipment, specialties, and more",
+  placeholder = "Ask anything about healthcare facilities...",
+  exampleQueries = DEFAULT_EXAMPLE_QUERIES,
+  icon: Icon = Sparkles,
+}: SearchInterfaceProps) {
   const [query, setQuery] = useState("")
   const { data: stats } = useStats()
 
@@ -37,14 +50,14 @@ export function SearchInterface({ onSearch, isLoading }: SearchInterfaceProps) {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col items-center gap-4 rounded-xl bg-card border p-8 text-center">
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-          <Sparkles className="h-6 w-6 text-primary" />
+          <Icon className="h-6 w-6 text-primary" />
         </div>
         <div>
           <h2 className="text-xl font-semibold text-foreground">
-            Explore Healthcare Facilities
+            {title}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Ask anything about healthcare facilities, equipment, specialties, and more
+            {subtitle}
           </p>
         </div>
 
@@ -54,7 +67,7 @@ export function SearchInterface({ onSearch, isLoading }: SearchInterfaceProps) {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Ask anything about healthcare facilities..."
+              placeholder={placeholder}
               className="pl-10 h-11"
               disabled={isLoading}
             />
@@ -80,7 +93,7 @@ export function SearchInterface({ onSearch, isLoading }: SearchInterfaceProps) {
       <div className="flex flex-col gap-2">
         <p className="text-sm font-medium text-muted-foreground">Try these queries</p>
         <div className="flex flex-wrap gap-2">
-          {EXAMPLE_QUERIES.map((eq) => (
+          {exampleQueries.map((eq) => (
             <button
               key={eq}
               type="button"

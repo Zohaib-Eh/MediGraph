@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import "mapbox-gl/dist/mapbox-gl.css"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Loader2, MapPin } from "lucide-react"
 import { api, type QueryLocation } from "@/lib/api"
 import type { Map as MapboxMap, Marker as MapboxMarker } from "mapbox-gl"
@@ -151,14 +152,14 @@ export function LocationMap({ query = "", title = "Locations Map", className = "
       const markers: MapboxMarker[] = []
       geocodedLocations.forEach((loc) => {
         const el = document.createElement("div")
-        el.innerHTML = '<div style="width:24px;height:24px;background:#ef4444;border:2px solid white;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3);cursor:pointer;"></div>'
+        el.innerHTML = '<div style="width:24px;height:24px;background:hsl(var(--chart-4));border:2px solid white;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3);cursor:pointer;"></div>'
         const facilitiesStr = loc.facilities?.length
           ? escapeHtml(loc.facilities.slice(0, 3).join(", ") + (loc.facilities.length > 3 ? "..." : ""))
           : ""
         const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(
           `<div style="padding:8px;font-family:system-ui;min-width:140px;">
             <div style="font-weight:600;font-size:14px;margin-bottom:4px;">${escapeHtml(loc.name)}</div>
-            ${facilitiesStr ? `<div style="font-size:12px;color:#64748b;">Facilities: ${facilitiesStr}</div>` : ""}
+            ${facilitiesStr ? `<div style="font-size:12px;color:hsl(var(--muted-foreground));">Facilities: ${facilitiesStr}</div>` : ""}
           </div>`
         )
         const marker = new mapboxgl.Marker(el).setLngLat([loc.lng, loc.lat]).setPopup(popup).addTo(map)
@@ -188,10 +189,7 @@ export function LocationMap({ query = "", title = "Locations Map", className = "
     return (
       <Card className={`border-border/50 ${className}`}>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <MapPin className="h-4 w-4 text-primary" />
-            {title}
-          </CardTitle>
+          <CardTitle className="text-base font-semibold">{title}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="rounded-lg border border-dashed bg-muted/30 p-6 text-center text-sm text-muted-foreground">
@@ -206,12 +204,15 @@ export function LocationMap({ query = "", title = "Locations Map", className = "
   return (
     <Card className={`border-border/50 ${className}`}>
       <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <MapPin className="h-4 w-4 text-primary" />
-          <CardTitle className="text-base">{title}</CardTitle>
-          {!isLoading && !error && geocodedLocations.length > 0 && (
-            <span className="text-xs text-muted-foreground">({geocodedLocations.length} locations)</span>
-          )}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <CardTitle className="text-base font-semibold">{title}</CardTitle>
+            {!isLoading && !error && geocodedLocations.length > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {geocodedLocations.length} locations
+              </Badge>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -222,7 +223,7 @@ export function LocationMap({ query = "", title = "Locations Map", className = "
         )}
         <div className="relative">
           {isLoading && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/80">
+            <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10 rounded-lg">
               <div className="flex flex-col items-center gap-3">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 <p className="text-sm text-muted-foreground">Loading map...</p>
@@ -230,14 +231,14 @@ export function LocationMap({ query = "", title = "Locations Map", className = "
             </div>
           )}
           {!isLoading && !error && geocodedLocations.length === 0 && (
-            <div className="absolute bottom-4 left-4 right-4 z-10 rounded-md border bg-background/95 px-3 py-2 text-center text-sm text-muted-foreground shadow-sm">
+            <div className="absolute bottom-4 left-4 right-4 z-10 rounded-lg border border-border bg-background/95 px-4 py-3 text-center text-sm text-muted-foreground shadow-sm">
               No locations found. Upload CSV files with address columns (address_city, address_country, etc.) and build the graph.
             </div>
           )}
           <div
             ref={containerRef}
             className="border rounded-lg bg-slate-50 dark:bg-slate-900 overflow-hidden"
-            style={{ minHeight: "350px" }}
+            style={{ minHeight: "500px" }}
           />
         </div>
       </CardContent>
