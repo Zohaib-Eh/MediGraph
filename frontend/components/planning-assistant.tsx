@@ -1,5 +1,6 @@
 "use client"
 import ReactMarkdown from 'react-markdown'
+import { GraphVisualization } from './graph-vis-simple'
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -46,12 +47,12 @@ const PLANNING_SCENARIOS: PlanningScenario[] = [
     prompt: "Which facilities are at capacity and need expansion based on their current utilization?"
   },
 ]
-
 export function PlanningAssistant() {
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null)
   const [customQuery, setCustomQuery] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<string | null>(null)
+  const [graphQuery, setGraphQuery] = useState<string | null>(null)
 
   const handleScenarioSelect = async (scenario: PlanningScenario) => {
     setSelectedScenario(scenario.id)
@@ -61,13 +62,13 @@ export function PlanningAssistant() {
 
   const executeQuery = async (query: string) => {
     if (!query.trim()) return
-    
     setIsLoading(true)
     setResult(null)
-    
+    setGraphQuery(null)
     try {
       const response = await api.query(query, false)
       setResult(response.answer)
+      setGraphQuery(query)
     } catch (error) {
       console.error("Planning query error:", error)
       setResult("❌ Error: Could not generate planning recommendation. Please try again.")
@@ -168,34 +169,44 @@ export function PlanningAssistant() {
         </CardContent>
       </Card>
 
-      {/* Results */}
+      {/* Results & Graph */}
       {result && (
-        <Card className="border-purple-500/50 bg-purple-500/5">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Lightbulb className="h-5 w-5 text-purple-500" />
-              <CardTitle className="text-base">Planning Recommendation</CardTitle>
+        <div className="flex gap-6">
+          {/* Results - 65% */}
+          <div className="flex-[65] min-w-0">
+            <Card className="border-purple-500/50 bg-purple-500/5">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Lightbulb className="h-5 w-5 text-purple-500" />
+                  <CardTitle className="text-base">Planning Recommendation</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="prose prose-sm max-w-none dark:prose-invert">
+                  <ReactMarkdown>
+                    {result}
+                  </ReactMarkdown>
+                </div>
+                <div className="mt-4 pt-4 border-t">
+                  <Badge variant="outline" className="text-xs">
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    AI-Generated Recommendation
+                  </Badge>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    This recommendation is based on current data in the knowledge graph. 
+                    Always verify with domain experts before implementing strategic decisions.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          {/* Graph - 35% */}
+          {graphQuery && (
+            <div className="flex-[35] min-w-0">
+              <GraphVisualization query={graphQuery} title="Relevant Knowledge Graph" />
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="prose prose-sm max-w-none dark:prose-invert">
-              <ReactMarkdown>
-                {result}
-              </ReactMarkdown>
-            </div>
-            
-            <div className="mt-4 pt-4 border-t">
-              <Badge variant="outline" className="text-xs">
-                <Sparkles className="h-3 w-3 mr-1" />
-                AI-Generated Recommendation
-              </Badge>
-              <p className="text-xs text-muted-foreground mt-2">
-                This recommendation is based on current data in the knowledge graph. 
-                Always verify with domain experts before implementing strategic decisions.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+          )}
+        </div>
       )}
 
       {/* Help Text */}

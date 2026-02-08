@@ -1,0 +1,30 @@
+# Node
+node_modules/
+.next/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+.env
+
+# VSCode
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Data uploads and cache
+data/uploads/
+parsed_data_cache/
+
+# Misc
+*.swp
+*.swo
