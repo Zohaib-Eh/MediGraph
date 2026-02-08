@@ -817,6 +817,18 @@ Please format as:
             return response.content
         
         # Normal path - we have data
+        # For simple count queries, return a direct answer without verbose structure
+        query_lower_check = query.lower()
+        is_count_query = any(phrase in query_lower_check for phrase in [
+            'how many', 'count of', 'total number', 'number of', 'total count',
+            'how many facilities', 'how many locations', 'how many procedures',
+            'how many equipment', 'how many specialties'
+        ])
+        count_value, entity_label = self._extract_simple_count(results)
+        if is_count_query and count_value is not None:
+            entity_text = f" {entity_label}" if entity_label else ""
+            return f"**Direct Answer:**\n\nThere are **{count_value}**{entity_text} in the database."
+        
         # Extract actual data sources (facility names, locations)
         sources = self._extract_data_sources(results)
         sources_text = "\n".join([f"- {s}" for s in sources]) if sources else "No specific facilities found in results."
@@ -911,6 +923,26 @@ The following facilities from the knowledge graph were analyzed:
         
         response = self.llm.invoke(messages)
         return response.content
+    
+    def _extract_simple_count(self, results: list) -> tuple:
+        """Extract simple count from results for count-type queries. Returns (count, entity_label) or (None, None)."""
+        for r in results:
+            if r.get('type') == 'count_nodes':
+                data = r.get('data')
+                if isinstance(data, int):
+                    node_type = r.get('spec', {}).get('node_type', 'items')
+                    # Human-readable labels for common types
+                    labels = {'Facility': 'facilities', 'Location': 'locations', 'Procedure': 'procedures',
+                              'Equipment': 'equipment', 'Specialty': 'specialties', 'Capability': 'capabilities'}
+                    label = labels.get(node_type, f"{node_type.lower()}s")
+                    return (data, label)
+            # Also handle list with single dict containing 'count' key
+            data = r.get('data')
+            if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict):
+                count = data[0].get('count')
+                if isinstance(count, int):
+                    return (count, 'items')
+        return (None, None)
     
     def _extract_data_sources(self, results: list) -> list:
         """Extract facility names and locations from query results as sources"""

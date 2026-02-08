@@ -27,6 +27,21 @@ function escapeHtml(s: string): string {
   return div.innerHTML
 }
 
+/** Group locations that geocode to same/similar coords into clusters */
+function clusterLocations(locations: GeocodedLocation[]): { center: { lat: number; lng: number }; locations: GeocodedLocation[] }[] {
+  const ROUND = 4 // ~11m - treat as same point
+  const groups = new Map<string, GeocodedLocation[]>()
+  for (const loc of locations) {
+    const key = `${loc.lat.toFixed(ROUND)}|${loc.lng.toFixed(ROUND)}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(loc)
+  }
+  return Array.from(groups.entries()).map(([, locs]) => ({
+    center: { lat: locs[0].lat, lng: locs[0].lng },
+    locations: locs,
+  }))
+}
+
 async function geocodeLocation(loc: QueryLocation): Promise<{ lng: number; lat: number } | null> {
   if (!MAPBOX_TOKEN) return null
   const parts = [loc.city, loc.state_or_region, loc.country].filter((p) => p && p !== "Unknown")
@@ -149,25 +164,39 @@ export function LocationMap({ query = "", title = "Locations Map", className = "
       })
       mapRef.current = map
 
+      const clusters = clusterLocations(geocodedLocations)
       const markers: MapboxMarker[] = []
-      geocodedLocations.forEach((loc) => {
+
+      clusters.forEach((cluster) => {
+        const count = cluster.locations.length
+        const size = count > 1 ? 32 : 24
         const el = document.createElement("div")
-        el.innerHTML = '<div style="width:24px;height:24px;background:hsl(var(--chart-4));border:2px solid white;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3);cursor:pointer;"></div>'
-        const facilitiesStr = loc.facilities?.length
-          ? escapeHtml(loc.facilities.slice(0, 3).join(", ") + (loc.facilities.length > 3 ? "..." : ""))
-          : ""
-        const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(
-          `<div style="padding:8px;font-family:system-ui;min-width:140px;">
-            <div style="font-weight:600;font-size:14px;margin-bottom:4px;">${escapeHtml(loc.name)}</div>
-            ${facilitiesStr ? `<div style="font-size:12px;color:hsl(var(--muted-foreground));">Facilities: ${facilitiesStr}</div>` : ""}
+        el.innerHTML = count > 1
+          ? `<div style="width:${size}px;height:${size}px;background:hsl(var(--chart-4));border:2px solid white;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3);cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:white;font-family:system-ui;">${count}</div>`
+          : '<div style="width:24px;height:24px;background:hsl(var(--chart-4));border:2px solid white;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3);cursor:pointer;"></div>'
+
+        const itemsHtml = cluster.locations
+          .map((loc) => {
+            const facilities = loc.facilities?.length ? loc.facilities.join(", ") : ""
+            const line = facilities ? `${escapeHtml(loc.name)} — ${escapeHtml(facilities)}` : escapeHtml(loc.name)
+            return `<li style="margin-bottom:6px;font-size:13px;">${line}</li>`
+          })
+          .join("")
+        const popup = new mapboxgl.Popup({ offset: 25, maxWidth: "320px" }).setHTML(
+          `<div style="padding:10px;font-family:system-ui;max-height:280px;overflow-y:auto;">
+            <div style="font-weight:600;font-size:14px;margin-bottom:8px;">${count} location${count > 1 ? "s" : ""}</div>
+            <ul style="margin:0;padding-left:18px;list-style:disc;">${itemsHtml}</ul>
           </div>`
         )
-        const marker = new mapboxgl.Marker(el).setLngLat([loc.lng, loc.lat]).setPopup(popup).addTo(map)
+        const marker = new mapboxgl.Marker(el)
+          .setLngLat([cluster.center.lng, cluster.center.lat])
+          .setPopup(popup)
+          .addTo(map)
         markers.push(marker)
       })
       markersRef.current = markers
 
-      if (geocodedLocations.length > 1) {
+      if (geocodedLocations.length > 0) {
         const bounds = new mapboxgl.LngLatBounds()
         geocodedLocations.forEach((loc) => bounds.extend([loc.lng, loc.lat]))
         map.fitBounds(bounds, { padding: 50, maxZoom: 12 })

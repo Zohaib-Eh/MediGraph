@@ -75,7 +75,7 @@ export function PlanningAssistant() {
         </div>
       )}
 
-      {/* Side-by-side layout: Results (65%) and Graph (35%) */}
+      {/* Side-by-side layout: Results (65%) | Graph + Map (35%) */}
       {(currentQuery || history.length > 0) && (
         <div className="flex gap-6">
           {/* Planning Results - 65% */}
@@ -103,25 +103,21 @@ export function PlanningAssistant() {
             </div>
           )}
 
-          {/* Graph Visualization - 35% */}
+          {/* Graph + Map - 35% (stacked below graph) */}
           {currentQuery && (
-            <div className="flex-[35] min-w-0">
+            <div className="flex-[35] min-w-0 flex flex-col gap-6">
               <GraphVisualization
                 query={currentQuery}
                 title="Relevant Knowledge Graph"
                 limit={50}
               />
+              <LocationMap
+                query={currentQuery}
+                title="Planning Locations Map"
+              />
             </div>
           )}
         </div>
-      )}
-
-      {/* Map: below the knowledge graph */}
-      {currentQuery && (
-        <LocationMap
-          query={currentQuery}
-          title="Planning Locations Map"
-        />
       )}
 
       <AnalysisInsights />
